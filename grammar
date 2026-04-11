@@ -1,0 +1,287 @@
+FlashLang Language Grammar v1.0
+============================
+
+PROGRAM STRUCTURE
+-----------------
+program = ( import_declaration | statement )* ;
+
+
+IMPORTS
+-------
+import_declaration = 
+    | "import" , identifier , ";"
+    | "import" , identifier , "." , identifier , ";"
+    ;
+
+
+STATEMENTS
+----------
+statement = 
+    | variable_declaration
+    | assignment
+    | function_call
+    | print_statement
+    | return_statement
+    | break_statement
+    | continue_statement
+    | if_statement
+    | while_statement
+    | for_statement
+    | function_declaration
+    | python_block
+    | py_call
+    | expression_statement
+    ;
+
+
+VARIABLES
+---------
+variable_declaration = 
+    "var" , identifier , "=" , expression , ";" ;
+
+assignment = 
+    identifier , "=" , expression , ";" ;
+
+
+OUTPUT
+------
+print_statement = 
+    "print" , "(" , expression , ")" , ";" ;
+
+
+CONTROL FLOW
+------------
+return_statement = 
+    "return" , [ expression ] , ";" ;
+
+break_statement = 
+    "break" , ";" ;
+
+continue_statement = 
+    "continue" , ";" ;
+
+
+CONDITIONALS
+------------
+if_statement = 
+    "if" , "(" , expression , ")" , block ,
+    [ "else" , "if" , "(" , expression , ")" , block ]* ,
+    [ "else" , block ] ;
+
+
+LOOPS
+-----
+while_statement = 
+    "while" , "(" , expression , ")" , block ;
+
+for_statement = 
+    "for" , identifier , "in" , expression , block ;
+
+
+FUNCTIONS
+---------
+function_declaration = 
+    "func" , identifier , "(" , [ parameters ] , ")" , block ;
+
+parameters = 
+    identifier ( "," , identifier )* ;
+
+function_call = 
+    identifier , "(" , [ arguments ] , ")" ;
+
+method_call = 
+    expression , "." , identifier , "(" , [ arguments ] , ")" ;
+
+arguments = 
+    expression ( "," , expression )* ;
+
+
+BLOCKS
+------
+block = 
+    "{" , statement* , "}" ;
+
+
+PYTHON INTEGRATION
+------------------
+python_block = 
+    "python" , "{" , 
+        ( python_code )* ,
+    "}" ;
+
+python_code = 
+    ? any valid Python code ? ;
+
+py_call = 
+    "py:" , python_expression ;
+
+python_expression = 
+    | python_literal
+    | python_identifier
+    | python_attribute_access
+    | python_function_call
+    | python_list_comprehension
+    | python_binary_operation
+    | python_unary_operation
+    | "(" , python_expression , ")"
+    ;
+
+python_attribute_access = 
+    python_expression , "." , identifier ;
+
+python_function_call = 
+    python_expression , "(" , [ python_arguments ] , ")" ;
+
+python_list_comprehension = 
+    "[" , expression , "for" , identifier , "in" , python_expression , "]" ;
+
+
+EXPRESSIONS
+-----------
+expression = 
+    | literal
+    | identifier
+    | function_call
+    | method_call
+    | py_call
+    | binary_operation
+    | unary_operation
+    | "(" , expression , ")"
+    ;
+
+binary_operation = 
+    expression , operator , expression ;
+
+operator = 
+    "+" | "-" | "*" | "/" | "%" | 
+    "==" | "!=" | "<" | ">" | "<=" | ">=" |
+    "and" | "or" ;
+
+unary_operation = 
+    ( "-" | "not" ) , expression ;
+
+expression_statement = 
+    expression , ";" ;
+
+
+LITERALS
+--------
+literal = 
+    | integer_literal
+    | float_literal
+    | string_literal
+    | boolean_literal
+    | null_literal
+    | list_literal
+    | dict_literal
+    ;
+
+integer_literal = 
+    digit+ ;
+
+float_literal = 
+    digit+ , "." , digit+ ;
+
+string_literal = 
+    '"' , ( character - '"' )* , '"' |
+    "'" , ( character - "'" )* , "'" ;
+
+boolean_literal = 
+    "true" | "false" ;
+
+null_literal = 
+    "null" ;
+
+list_literal = 
+    "[" , [ expression ( "," , expression )* ] , "]" ;
+
+dict_literal = 
+    "{" , [ expression , ":" , expression ( "," , expression , ":" , expression )* ] , "}" ;
+
+
+COMMENTS
+--------
+single_line_comment = 
+    "/" , ( character - newline )* , newline ;
+
+
+IDENTIFIERS
+-----------
+identifier = 
+    letter , ( letter | digit | "_" )* ;
+
+letter = 
+    "a".."z" | "A".."Z" | "_" ;
+
+digit = 
+    "0".."9" ;
+
+
+KEYWORDS
+--------
+keywords = 
+    "var" | "print" | "if" | "else" | "while" | "for" | "in" |
+    "func" | "return" | "break" | "continue" |
+    "import" | "python" | "py" |
+    "true" | "false" | "null" |
+    "and" | "or" | "not" ;
+
+
+BUILT-IN FUNCTIONS
+------------------
+builtin_functions = 
+    | "print" - output to console
+    | "len"   - get length of string/list
+    | "range" - generate sequence of numbers
+    | "str"   - convert to string
+    | "int"   - convert to integer
+    | "float" - convert to float
+    | "list"  - convert to list
+    | "type"  - get type of value
+    | "input" - read from console
+    ;
+
+
+EXAMPLES
+--------
+// Variable declaration
+var name = "World";
+var count = 42;
+var pi = 3.14;
+
+// Print
+print("Hello, " + name);
+print(count);
+
+// Conditional
+if (count > 10) {
+    print("Large number");
+}
+
+// Loop
+for i in range(5) {
+    print("Iteration: " + i);
+}
+
+// Function
+func add(a, b) {
+    return a + b;
+}
+
+// Python call
+var result = py: math.sqrt(16);
+var doubled = py: [x*2 for x in [1,2,3]];
+
+// Python block
+python {
+    def greet(name):
+        return f"Hello, {name}!"
+}
+
+var msg = greet("World");
+
+// Import
+import math;
+import random;
+
+var random_num = random.randint(1, 100);
