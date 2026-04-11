@@ -27,7 +27,7 @@ class FlashLangPackageManager:
         self.cache_dir = self.flash_home / "cache"
         self.config_file = self.flash_home / "config.json"
         
-        self.main_registry = "https://github.com/MichaelSoftware2025/flashlang_repo/raw/refs/heads/master/packages.json"
+        self.main_registry = "https://github.com/FlashLang/flashlang_repo/raw/refs/heads/main/packages.json"
         
         self._setup_dirs()
         self._load_config()
