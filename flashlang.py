@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FlashLang Language Interpreter - Версия 0.3.1 FINAL
+FlashLang Language Interpreter - Версия 0.2
 - ПОЛНОСТЬЮ РАБОТАЕТ ВСЁ: классы, this, конкатенация, print, try-catch, switch
 - Исправлена конкатенация в print внутри методов
 - Исправлено сложение чисел
@@ -31,10 +31,8 @@ class FlashLangInterpreter:
         self.output_buffer = []
         self.debug = debug
         
-        self.lib_paths = [
-            Path.cwd() / "lib",
-            Path(__file__).parent / "lib"
-        ]
+        self.flash_home = Path(__file__).parent
+        self.packages_dir = self.flash_home / "lib"
         
         self._setup_builtins()
     
@@ -305,7 +303,7 @@ class FlashLangInterpreter:
                     result = ''
                     for v in values:
                         result += str(v) if v is not None else ''
-                return result
+                return result               
         
         # Строки (целиком в кавычках)
         if (expr.startswith('"') and expr.endswith('"')) or (expr.startswith("'") and expr.endswith("'")):
@@ -342,6 +340,80 @@ class FlashLangInterpreter:
             return result
         
         return expr
+    
+    def _import_flash_module(self, module_name: str) -> bool:
+        """Импортирует FlashLang модуль (.flang файл)"""
+        search_paths = [
+            Path.cwd(),
+            Path.cwd() / "lib",
+            Path.home() / ".flashlang" / "packages",
+            Path(__file__).parent / "lib",
+        ]
+        
+        for search_path in search_paths:
+            module_file = search_path / f"{module_name}.flang"
+            
+            if module_file.exists():
+                try:
+                    with open(module_file, 'r', encoding='utf-8') as f:
+                        code = f.read()
+                    
+                    # Сохраняем текущее состояние
+                    old_functions = self.functions.copy()
+                    old_variables = self.variables.copy()
+                    old_classes = self.classes.copy()
+                    old_python_funcs = self.python_functions.copy()
+                    old_python_classes = self.python_classes.copy()
+                    
+                    # Выполняем код модуля
+                    self.execute(code)
+                    
+                    # Находим НОВЫЕ функции, переменные, классы
+                    new_functions = {}
+                    for name, func in self.functions.items():
+                        if name not in old_functions:
+                            new_functions[name] = func
+                    
+                    new_variables = {}
+                    for name, val in self.variables.items():
+                        if name not in old_variables:
+                            new_variables[name] = val
+                    
+                    new_classes = {}
+                    for name, cls in self.classes.items():
+                        if name not in old_classes:
+                            new_classes[name] = cls
+                    
+                    new_python_funcs = {}
+                    for name, func in self.python_functions.items():
+                        if name not in old_python_funcs:
+                            new_python_funcs[name] = func
+                    
+                    new_python_classes = {}
+                    for name, cls in self.python_classes.items():
+                        if name not in old_python_classes:
+                            new_python_classes[name] = cls
+                    
+                    # Сохраняем модуль
+                    self.flash_modules[module_name] = {
+                        'functions': new_functions,
+                        'variables': new_variables,
+                        'classes': new_classes,
+                        'python_functions': new_python_funcs,
+                        'python_classes': new_python_classes,
+                    }
+                    
+                    print(f"[FlashLang] Imported module: {module_name}")
+                    self._debug_print(f"  Functions: {list(new_functions.keys())}")
+                    self._debug_print(f"  Variables: {list(new_variables.keys())}")
+                    
+                    return True
+                    
+                except Exception as e:
+                    print(f"Error importing module '{module_name}': {e}")
+                    return False
+        
+        return False
     
     def _split_by_plus_outside_parens(self, expr: str) -> List[str]:
         parts = []
@@ -603,11 +675,41 @@ class FlashLangInterpreter:
         
         if line.startswith('import '):
             module_name = line[7:].rstrip(';').strip()
-            if module_name not in self.modules:
-                try:
-                    self.modules[module_name] = __import__(module_name)
-                except ImportError:
-                    pass
+            
+            # СНАЧАЛА пробуем импортировать FlashLang модуль
+            if self._import_flash_module(module_name):
+                self._debug_print(f"Imported FlashLang module: {module_name}")
+                # Добавляем функции и переменные модуля с префиксом
+                if module_name in self.flash_modules:
+                    mod = self.flash_modules[module_name]
+                    
+                    # Функции FlashLang
+                    for func_name, func in mod.get('functions', {}).items():
+                        self.functions[f"{module_name}.{func_name}"] = func
+                        self._debug_print(f"  Registered: {module_name}.{func_name}")
+                    
+                    # Python функции
+                    for func_name, func in mod.get('python_functions', {}).items():
+                        self.python_functions[f"{module_name}.{func_name}"] = func
+                        self._debug_print(f"  Registered Python: {module_name}.{func_name}")
+                    
+                    # ПЕРЕМЕННЫЕ!
+                    for var_name, val in mod.get('variables', {}).items():
+                        self.variables[f"{module_name}.{var_name}"] = val
+                        self._debug_print(f"  Registered var: {module_name}.{var_name} = {val}")
+                    
+                    # Классы
+                    for class_name, cls in mod.get('classes', {}).items():
+                        self.classes[f"{module_name}.{class_name}"] = cls
+                        self._debug_print(f"  Registered class: {module_name}.{class_name}")
+            else:
+                # Если не нашли .flang, пробуем Python модуль
+                if module_name not in self.modules:
+                    try:
+                        self.modules[module_name] = __import__(module_name)
+                        self._debug_print(f"Imported Python module: {module_name}")
+                    except ImportError:
+                        print(f"Import error: Module '{module_name}' not found")
             return None
         
         if line.startswith('var '):
@@ -1030,7 +1132,7 @@ try {
 print("Program finished!");
 '''
     
-    print("=== FLASHLANG 0.3.1 FINAL ===\n")
+    print("=== FLASHLANG 0.2 ===\n")
     interpreter = FlashLangInterpreter(debug=debug)
     interpreter.execute(example_code)
     print(f"\n=== Program finished ===")
@@ -1042,7 +1144,7 @@ if __name__ == "__main__":
     
     ensure_lib_folder()
     
-    if len(args) > 0 and args[0] != '--example':
+    if len(args) > 0:
         with open(args[0], 'r', encoding='utf-8') as f:
             code = f.read()
         print(f"=== Running {args[0]} ===\n")
@@ -1050,4 +1152,4 @@ if __name__ == "__main__":
         interpreter.execute(code)
         print(f"\n=== Program finished ===")
     else:
-        run_example(debug=debug)
+        print("No input file...")

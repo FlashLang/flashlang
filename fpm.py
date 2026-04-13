@@ -22,8 +22,8 @@ import urllib.error
 
 class FlashLangPackageManager:
     def __init__(self):
-        self.flash_home = Path.home() / ".flang"
-        self.packages_dir = self.flash_home / "packages"
+        self.flash_home = Path(__file__).parent
+        self.packages_dir = self.flash_home / "lib"
         self.cache_dir = self.flash_home / "cache"
         self.config_file = self.flash_home / "config.json"
         
@@ -96,14 +96,14 @@ func greet(name) {{
 
 var VERSION = "0.1.0";
 '''
-        main_file = project_dir / "src" / f"{name}.flash"
+        main_file = project_dir / "src" / f"{name}.flang"
         main_file.write_text(main_content, encoding='utf-8')
         
         manifest = {
             "name": name,
             "version": "0.1.0",
             "description": description if description else f"A FlashLang package: {name}",
-            "main": f"src/{name}.flash",
+            "main": f"src/{name}.flang",
             "author": author if author else "",
             "license": "MIT",
             "dependencies": {},
@@ -126,18 +126,6 @@ var VERSION = "0.1.0";
 ## Installation
 
 fpm install {name}
-
-## Usage
-
-import {name};
-
-var result = {name}.greet("World");
-print(result);
-
-## API
-
-### greet(name: str) -> str
-Returns a greeting message.
 
 ### VERSION: str
 Current version of the package.
@@ -216,19 +204,19 @@ test_greet();
 
 print("All tests passed!");
 '''
-        test_file = project_dir / "tests" / "test.flash"
+        test_file = project_dir / "tests" / "test.flang"
         test_file.write_text(test_content, encoding='utf-8')
         
         print(f"\nCreated FlashLang package '{name}'")
         print(f"\nProject structure:")
         print(f"   {name}/")
         print(f"   ├── src/")
-        print(f"   │   └── {name}.flash")
+        print(f"   │   └── {name}.flang")
         print(f"   ├── lib/")
         print(f"   ├── examples/")
-        print(f"   │   └── example.flash")
+        print(f"   │   └── example.flang")
         print(f"   ├── tests/")
-        print(f"   │   └── test.flash")
+        print(f"   │   └── test.flang")
         print(f"   ├── fpm.json")
         print(f"   ├── README.md")
         print(f"   └── .gitignore")
@@ -425,22 +413,51 @@ print("All tests passed!");
                 print(f"SHA256 mismatch!")
                 return False
         
-        install_dir = self.packages_dir / package_name
-        if install_dir.exists():
-            shutil.rmtree(install_dir)
-        install_dir.mkdir()
+        # Создаем временную директорию для распаковки
+        temp_dir = self.cache_dir / f"temp_{package_name}"
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+        temp_dir.mkdir()
         
         print(f"  Extracting...")
         with zipfile.ZipFile(package_file, 'r') as zip_ref:
-            zip_ref.extractall(install_dir)
+            zip_ref.extractall(temp_dir)
         
+        # Копируем ТОЛЬКО .flang файлы из src/ прямо в lib/
+        src_dir = temp_dir / "src"
+        if src_dir.exists():
+            print(f"  Copying .flang files to lib/...")
+            for item in src_dir.iterdir():
+                dest = self.packages_dir / item.name
+                shutil.copy2(item, dest)
+                print(f"     + {item.name}")
+        else:
+            # Если нет src/, копируем .flang файлы из корня
+            print(f"  Copying .flang files to lib/...")
+            for item in temp_dir.iterdir():
+                if item.suffix == '.flang':
+                    dest = self.packages_dir / item.name
+                    shutil.copy2(item, dest)
+                    print(f"     + {item.name}")
+        
+        # Очищаем временную директорию
+        shutil.rmtree(temp_dir)
+        
+        # Устанавливаем зависимости
         deps = manifest.get("dependencies", {})
         for dep_name, dep_version in deps.items():
-            if not (self.packages_dir / dep_name).exists():
+            # Проверяем, установлен ли уже пакет (есть ли .flang файлы)
+            installed = False
+            for item in self.packages_dir.iterdir():
+                if item.suffix == '.flang' and item.stem == dep_name:
+                    installed = True
+                    break
+            
+            if not installed:
                 print(f"  Installing dependency: {dep_name}")
                 self.install_package(dep_name)
         
-        print(f"Installed {package_name}@{version}")
+        print(f"Installed {package_name}@{version} to lib")
         self._add_to_package_json(package_name, version)
         
         return True
