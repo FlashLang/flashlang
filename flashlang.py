@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
 """
-FlashLang Language Interpreter - Версия 0.2
-- ПОЛНОСТЬЮ РАБОТАЕТ ВСЁ: классы, this, конкатенация, print, try-catch, switch
-- Исправлена конкатенация в print внутри методов
-- Исправлено сложение чисел
+FlashLang Language Interpreter - Версия 1.0
+- Классы из версии 0.2 (РАБОТАЮТ!)
+- Python блоки
+- if/else if/else
+- Массивы, JSON
+- Импорт модулей
 """
 
+import os
 import sys
 import re
+import json
 import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+import math
+import random
 
 class FlashLangInterpreter:
     def __init__(self, debug=False):
@@ -25,26 +31,16 @@ class FlashLangInterpreter:
         self.return_value = None
         self.break_flag = False
         self.continue_flag = False
-        self.skip_else = False
-        self.exception_caught = False
-        self.exception_value = None
-        self.output_buffer = []
         self.debug = debug
-        
         self.flash_home = Path(__file__).parent
         self.packages_dir = self.flash_home / "lib"
-        
+        self.skip_else = False
         self._setup_builtins()
     
     def _setup_builtins(self):
-        try:
-            import math
-            self.modules['math'] = math
-        except: pass
-        try:
-            import random
-            self.modules['random'] = random
-        except: pass
+        self.modules['math'] = math
+        self.modules['random'] = random
+        self.modules['json'] = json
     
     def _debug_print(self, msg):
         if self.debug:
@@ -91,7 +87,9 @@ class FlashLangInterpreter:
             print(f"Python error: {e}")
             return None
     
-    def _get_variable(self, name: str, context: Dict) -> Any:
+    def _get_variable(self, name: str, context: Dict = None) -> Any:
+        if context is None:
+            context = {}
         if name in context: return context[name]
         if name in self.locals: return self.locals[name]
         if name in self.variables: return self.variables[name]
@@ -102,23 +100,18 @@ class FlashLangInterpreter:
         return None
     
     def _evaluate_simple(self, expr: str, context: Dict) -> Any:
-        """Вычисляет простые выражения без обработки +"""
         expr = expr.strip()
         
-        # Числа
         if expr.lstrip('-').replace('.', '').isdigit():
             return float(expr) if '.' in expr else int(expr)
         
-        # Строки
         if (expr.startswith('"') and expr.endswith('"')) or (expr.startswith("'") and expr.endswith("'")):
             return expr[1:-1]
         
-        # Константы
         if expr.lower() == 'true': return True
         if expr.lower() == 'false': return False
         if expr.lower() == 'null': return None
         
-        # Доступ к полям
         if '.' in expr:
             parts = expr.split('.')
             if parts[0] == 'this':
@@ -133,21 +126,8 @@ class FlashLangInterpreter:
                     if isinstance(obj, dict) and '_class' in obj:
                         if len(parts) > 1 and parts[1] in obj['_fields']:
                             return obj['_fields'][parts[1]]
-                    else:
-                        for part in parts[1:]:
-                            if hasattr(obj, part):
-                                obj = getattr(obj, part)
-                            elif isinstance(obj, dict) and part in obj:
-                                obj = obj[part]
-                            else:
-                                return None
-                        return obj
-        
-        # Вызов функции
-        if '(' in expr and expr.endswith(')'):
-            return self._parse_and_call(expr, context)
-        
-        # Переменная
+                    elif isinstance(obj, dict):
+                        return obj.get(parts[1])
         return self._get_variable(expr, context)
     
     def _parse_array_literal(self, content: str, context: Dict) -> List[Any]:
@@ -213,7 +193,6 @@ class FlashLangInterpreter:
             params = cls['constructor'].get('params', [])
             for i, param in enumerate(params):
                 val = args[i] if i < len(args) else None
-                # Пробуем преобразовать в число для любых числовых полей
                 if isinstance(val, str):
                     try:
                         if val.isdigit():
@@ -230,7 +209,6 @@ class FlashLangInterpreter:
             self.locals = old_locals
             self.return_value = old_return
         
-        self._debug_print(f"Instance created: {instance}")
         return instance
     
     def evaluate_expression(self, expr: str, context: Dict = None) -> Any:
@@ -253,63 +231,42 @@ class FlashLangInterpreter:
         if expr.lstrip('-').replace('.', '').isdigit():
             return float(expr) if '.' in expr else int(expr)
         
-        # Константы
         if expr.lower() == 'true': return True
         if expr.lower() == 'false': return False
         if expr.lower() == 'null': return None
         
-        # Вызов функции/метода или new (только если нет + вне скобок)
-        if '(' in expr and expr.endswith(')'):
-            paren_count = 0
-            has_plus_outside = False
-            in_string = False
-            quote = None
-            for ch in expr:
-                if ch in ('"', "'") and not in_string:
-                    in_string = True
-                    quote = ch
-                elif ch == quote and in_string:
-                    in_string = False
-                    quote = None
-                elif ch == '(' and not in_string:
-                    paren_count += 1
-                elif ch == ')' and not in_string:
-                    paren_count -= 1
-                elif ch == '+' and paren_count == 0 and not in_string:
-                    has_plus_outside = True
-                    break
-            if not has_plus_outside:
-                return self._parse_and_call(expr, context)
+        if '>=' in expr:
+            parts = expr.split('>=')
+            return self.evaluate_expression(parts[0], context) >= self.evaluate_expression(parts[1], context)
+        if '<=' in expr:
+            parts = expr.split('<=')
+            return self.evaluate_expression(parts[0], context) <= self.evaluate_expression(parts[1], context)
+        if '==' in expr:
+            parts = expr.split('==')
+            return self.evaluate_expression(parts[0], context) == self.evaluate_expression(parts[1], context)
+        if '>' in expr:
+            parts = expr.split('>')
+            return self.evaluate_expression(parts[0], context) > self.evaluate_expression(parts[1], context)
+        if '<' in expr:
+            parts = expr.split('<')
+            return self.evaluate_expression(parts[0], context) < self.evaluate_expression(parts[1], context)
         
-        # Конкатенация/сложение
+        if '(' in expr and expr.endswith(')'):
+            return self._parse_and_call(expr, context)
+        
         if '+' in expr:
             parts = self._split_by_plus_outside_parens(expr)
-            self._debug_print(f"CONCAT parts: {parts}")
             if len(parts) > 1:
-                # Проверяем, все ли части числа
-                all_numbers = True
-                values = []
+                result = ''
                 for part in parts:
                     val = self.evaluate_expression(part.strip(), context)
-                    values.append(val)
-                    if not isinstance(val, (int, float)):
-                        all_numbers = False
-                
-                if all_numbers:
-                    # Числовое сложение
-                    result = sum(values)
-                else:
-                    # Строковая конкатенация
-                    result = ''
-                    for v in values:
-                        result += str(v) if v is not None else ''
-                return result               
+                    if val is not None:
+                        result += str(val)
+                return result
         
-        # Строки (целиком в кавычках)
         if (expr.startswith('"') and expr.endswith('"')) or (expr.startswith("'") and expr.endswith("'")):
             return expr[1:-1]
         
-        # Доступ к полям
         if '.' in expr:
             parts = expr.split('.')
             if parts[0] == 'this':
@@ -325,15 +282,9 @@ class FlashLangInterpreter:
                     if isinstance(obj, dict) and '_class' in obj:
                         if len(parts) > 1 and parts[1] in obj['_fields']:
                             return obj['_fields'][parts[1]]
-                    else:
-                        for part in parts[1:]:
-                            if hasattr(obj, part):
-                                obj = getattr(obj, part)
-                            elif isinstance(obj, dict) and part in obj:
-                                obj = obj[part]
-                            else:
-                                return None
-                        return obj
+                    elif isinstance(obj, dict):
+                        return obj.get(parts[1])
+                return None
         
         result = self._get_variable(expr, context)
         if result is not None:
@@ -342,33 +293,32 @@ class FlashLangInterpreter:
         return expr
     
     def _import_flash_module(self, module_name: str) -> bool:
-        """Импортирует FlashLang модуль (.flang файл)"""
+        module_path = module_name.replace('.', os.sep)
+        
         search_paths = [
             Path.cwd(),
             Path.cwd() / "lib",
-            Path.home() / ".flashlang" / "packages",
+            self.packages_dir,
             Path(__file__).parent / "lib",
         ]
         
         for search_path in search_paths:
-            module_file = search_path / f"{module_name}.flang"
+            module_file = search_path / f"{module_path}.flang"
+            if not module_file.exists():
+                module_file = search_path / f"{module_name}.flang"
             
             if module_file.exists():
                 try:
                     with open(module_file, 'r', encoding='utf-8') as f:
                         code = f.read()
                     
-                    # Сохраняем текущее состояние
                     old_functions = self.functions.copy()
                     old_variables = self.variables.copy()
                     old_classes = self.classes.copy()
                     old_python_funcs = self.python_functions.copy()
-                    old_python_classes = self.python_classes.copy()
                     
-                    # Выполняем код модуля
                     self.execute(code)
                     
-                    # Находим НОВЫЕ функции, переменные, классы
                     new_functions = {}
                     for name, func in self.functions.items():
                         if name not in old_functions:
@@ -389,28 +339,18 @@ class FlashLangInterpreter:
                         if name not in old_python_funcs:
                             new_python_funcs[name] = func
                     
-                    new_python_classes = {}
-                    for name, cls in self.python_classes.items():
-                        if name not in old_python_classes:
-                            new_python_classes[name] = cls
-                    
-                    # Сохраняем модуль
                     self.flash_modules[module_name] = {
                         'functions': new_functions,
                         'variables': new_variables,
                         'classes': new_classes,
                         'python_functions': new_python_funcs,
-                        'python_classes': new_python_classes,
                     }
                     
-                    print(f"[FlashLang] Imported module: {module_name}")
-                    self._debug_print(f"  Functions: {list(new_functions.keys())}")
-                    self._debug_print(f"  Variables: {list(new_variables.keys())}")
-                    
+                    print(f"[FlashLang] Imported: {module_name}")
                     return True
                     
                 except Exception as e:
-                    print(f"Error importing module '{module_name}': {e}")
+                    print(f"Error importing '{module_name}': {e}")
                     return False
         
         return False
@@ -459,7 +399,6 @@ class FlashLangInterpreter:
             if match:
                 class_name = match.group(1)
                 args_str = match.group(2)
-                self._debug_print(f"NEW: class={class_name}, args={args_str}")
                 args = self._parse_arguments(args_str, context)
                 if class_name in self.classes:
                     return self._create_flash_instance(class_name, args)
@@ -497,7 +436,7 @@ class FlashLangInterpreter:
                                 else:
                                     self.locals[param] = None
                             
-                            self._debug_print(f"Executing method {method_name}, body: {method['body']}")
+                            self._debug_print(f"Executing method {method_name}")
                             for line in method['body']:
                                 self.execute_line(line)
                                 if self.return_value is not None:
@@ -507,17 +446,6 @@ class FlashLangInterpreter:
                             self.locals = old_locals
                             self.return_value = old_return
                             return result
-                
-                # Python объект
-                if obj and hasattr(obj, method_name):
-                    method = getattr(obj, method_name)
-                    if callable(method):
-                        args = self._parse_arguments(args_str, context)
-                        try:
-                            return method(*args)
-                        except Exception as e:
-                            print(f"Error: {e}")
-                            return None
         
         # Обычный вызов
         paren_pos = expr.find('(')
@@ -526,7 +454,6 @@ class FlashLangInterpreter:
             args_str = expr[paren_pos+1:-1].strip()
             
             if name == 'print':
-                # Вычисляем аргумент как конкатенацию если есть +
                 if '+' in args_str and not (args_str.startswith('"') and args_str.endswith('"')):
                     parts = self._split_by_plus_outside_parens(args_str)
                     result = ''
@@ -538,24 +465,30 @@ class FlashLangInterpreter:
                     val = self.evaluate_expression(args_str, context)
                     output = str(val) if val is not None else ''
                 print(output)
-                self.output_buffer.append(output)
                 return output
             
-            if name == 'package':
-                pass
-            
-            args = self._parse_arguments(args_str, context)
+            if name == 'input':
+                prompt = self.evaluate_expression(args_str, context) if args_str else ''
+                if prompt:
+                    print(prompt, end='')
+                return input()
             
             if name == 'len':
-                return len(args[0]) if args else 0
+                val = self.evaluate_expression(args_str, context)
+                return len(val) if val else 0
             if name == 'range':
+                args = self._parse_arguments(args_str, context)
                 if len(args) == 1: return list(range(args[0]))
                 elif len(args) == 2: return list(range(args[0], args[1]))
-                elif len(args) == 3: return list(range(args[0], args[1], args[2]))
                 return []
-            if name == 'str': return str(args[0]) if args else ''
-            if name == 'int': return int(args[0]) if args else 0
-            if name == 'float': return float(args[0]) if args else 0.0
+            if name == 'json_parse':
+                val = self.evaluate_expression(args_str, context)
+                return json.loads(val) if val else {}
+            if name == 'json_stringify':
+                val = self.evaluate_expression(args_str, context)
+                return json.dumps(val) if val else "{}"
+            
+            args = self._parse_arguments(args_str, context)
             
             if name in self.python_classes:
                 try:
@@ -676,40 +609,22 @@ class FlashLangInterpreter:
         if line.startswith('import '):
             module_name = line[7:].rstrip(';').strip()
             
-            # СНАЧАЛА пробуем импортировать FlashLang модуль
             if self._import_flash_module(module_name):
-                self._debug_print(f"Imported FlashLang module: {module_name}")
-                # Добавляем функции и переменные модуля с префиксом
                 if module_name in self.flash_modules:
                     mod = self.flash_modules[module_name]
-                    
-                    # Функции FlashLang
                     for func_name, func in mod.get('functions', {}).items():
                         self.functions[f"{module_name}.{func_name}"] = func
-                        self._debug_print(f"  Registered: {module_name}.{func_name}")
-                    
-                    # Python функции
                     for func_name, func in mod.get('python_functions', {}).items():
                         self.python_functions[f"{module_name}.{func_name}"] = func
-                        self._debug_print(f"  Registered Python: {module_name}.{func_name}")
-                    
-                    # ПЕРЕМЕННЫЕ!
                     for var_name, val in mod.get('variables', {}).items():
                         self.variables[f"{module_name}.{var_name}"] = val
-                        self._debug_print(f"  Registered var: {module_name}.{var_name} = {val}")
-                    
-                    # Классы
                     for class_name, cls in mod.get('classes', {}).items():
                         self.classes[f"{module_name}.{class_name}"] = cls
-                        self._debug_print(f"  Registered class: {module_name}.{class_name}")
-            else:
-                # Если не нашли .flang, пробуем Python модуль
-                if module_name not in self.modules:
-                    try:
-                        self.modules[module_name] = __import__(module_name)
-                        self._debug_print(f"Imported Python module: {module_name}")
-                    except ImportError:
-                        print(f"Import error: Module '{module_name}' not found")
+            elif module_name not in self.modules:
+                try:
+                    self.modules[module_name] = __import__(module98)
+                except ImportError:
+                    print(f"Import error: Module '{module_name}' not found")
             return None
         
         if line.startswith('var '):
@@ -719,68 +634,121 @@ class FlashLangInterpreter:
                 var_name = parts[0].strip()
                 value = self.evaluate_expression(parts[1].strip())
                 self.variables[var_name] = value
-                self._debug_print(f"VAR {var_name} = {value} (type: {type(value)})")
             return None
         
-        if '=' in line and not any(line.startswith(kw) for kw in ['if', 'while', 'for', 'func', 'class', 'try', 'catch', 'switch']):
-            line = line.rstrip(';')
-            parts = line.split('=', 1)
-            var_name = parts[0].strip()
-            value = self.evaluate_expression(parts[1].strip())
-            
-            if '.' in var_name:
-                obj_parts = var_name.split('.')
-                if obj_parts[0] == 'this':
-                    obj = self.locals.get('this')
-                    if obj and isinstance(obj, dict) and '_class' in obj:
-                        try:
-                            if isinstance(value, str):
-                                value = int(value) if value.isdigit() else float(value)
-                            else:
-                                value = int(value) if str(value).isdigit() else float(value)
-                        except:
-                            pass
-                    obj['_fields'][obj_parts[1]] = value
-                    self._debug_print(f"ASSIGN this.{obj_parts[1]} = {value} (type: {type(value)})")
-                    return value
-            
-            if var_name in self.locals:
-                self.locals[var_name] = value
-            else:
-                self.variables[var_name] = value
-            self._debug_print(f"ASSIGN {var_name} = {value}")
-            return value
-        
-        if line.startswith('print(') and line.endswith(')'):
-            expr = line[6:-1].strip()
-            value = self.evaluate_expression(expr)
-            if value is not None:
-                print(value)
-            return value
-        
-        if line.startswith('return'):
-            expr = line[6:].rstrip(';').strip()
-            self.return_value = self.evaluate_expression(expr) if expr else None
-            return self.return_value
-        
-        if line in ('break', 'break;'):
-            self.break_flag = True
-            return None
-        if line in ('continue', 'continue;'):
-            self.continue_flag = True
-            return None
-        
-        if line.startswith('throw '):
-            expr = line[6:].rstrip(';').strip()
-            self.exception_value = self.evaluate_expression(expr)
-            self.exception_caught = False
-            return None
-        
-        if '(' in line:
+        if '(' in line and line.endswith(';') and not line.startswith('var ') and not line.startswith('print(') and not line.startswith('if ') and not line.startswith('for ') and not line.startswith('while ') and not line.startswith('return '):
             line = line.rstrip(';')
             return self.evaluate_expression(line)
         
-        return self.evaluate_expression(line.rstrip(';'))
+        if line.startswith('print(') and line.endswith(');'):
+            expr = line[6:-2].strip()
+            value = self.evaluate_expression(expr)
+            if value is not None:
+                print(value)
+            return None
+        
+        if '=' in line and '[' in line and line.endswith(';'):
+            line = line.rstrip(';')
+            parts = line.split('=', 1)
+            left = parts[0].strip()
+            val = self.evaluate_expression(parts[1].strip())
+            bracket_pos = left.find('[')
+            arr_name = left[:bracket_pos].strip()
+            idx_str = left[bracket_pos+1:-1].strip()
+            arr = self._get_variable(arr_name)
+            idx = self.evaluate_expression(idx_str)
+            if isinstance(arr, list):
+                arr[idx] = val
+            return val
+        
+        if '=' in line and line.endswith(';'):
+            line = line.rstrip(';')
+            parts = line.split('=', 1)
+            name = parts[0].strip()
+            val = self.evaluate_expression(parts[1].strip())
+            
+            if '.' in name:
+                obj_parts = name.split('.')
+                if obj_parts[0] == 'this':
+                    obj = self.locals.get('this')
+                    if obj and isinstance(obj, dict) and '_class' in obj:
+                        obj['_fields'][obj_parts[1]] = val
+                        return val
+            
+            if name in self.locals:
+                self.locals[name] = val
+            else:
+                self.variables[name] = val
+            return val
+        
+        if line.startswith('return '):
+            expr = line[7:].rstrip(';').strip()
+            self.return_value = self.evaluate_expression(expr) if expr else None
+            return self.return_value
+        
+        return None
+    
+    def _extract_block(self, lines: List[str], start_idx: int) -> Tuple[List[str], int]:
+        block = []
+        i = start_idx
+        depth = 0
+        
+        line = lines[i].strip()
+        if '{' in line:
+            depth = 1
+            after = line.split('{', 1)[1].strip()
+            if after and after != '}':
+                block.append(after)
+            if '}' in after:
+                depth -= after.count('}')
+            i += 1
+        
+        while i < len(lines) and depth > 0:
+            line = lines[i].strip()
+            
+            if line.startswith('} else if ') or line.startswith('} else {'):
+                break
+            
+            depth += line.count('{') - line.count('}')
+            if depth > 0:
+                block.append(line)
+            else:
+                if '}' in line:
+                    before = line.split('}', 1)[0].strip()
+                    if before:
+                        block.append(before)
+            i += 1
+        
+        return block, i
+    
+    def _extract_python_block(self, lines: List[str], start_idx: int) -> Tuple[List[str], int]:
+        block = []
+        i = start_idx
+        depth = 0
+        
+        line = lines[i].strip()
+        if '{' in line:
+            depth = 1
+            after = line.split('{', 1)[1].strip()
+            if after and after != '}':
+                block.append(after)
+            if '}' in after:
+                depth -= after.count('}')
+            i += 1
+        
+        while i < len(lines) and depth > 0:
+            line = lines[i].rstrip('\n')
+            depth += line.count('{') - line.count('}')
+            if depth > 0:
+                block.append(line)
+            else:
+                if '}' in line:
+                    before = line.split('}', 1)[0].strip()
+                    if before:
+                        block.append(before)
+            i += 1
+        
+        return block, i
     
     def execute_block(self, lines: List[str]) -> Any:
         if isinstance(lines, str):
@@ -800,133 +768,60 @@ class FlashLangInterpreter:
                 continue
             
             if line.startswith('if '):
-                condition_expr = line[3:].split('{')[0].strip()
-                if condition_expr.startswith('(') and condition_expr.endswith(')'):
-                    condition_expr = condition_expr[1:-1]
-                condition = self.evaluate_expression(condition_expr)
-                block_lines, next_i = self._extract_block(lines, i)
+                cond_str = line[3:].split('{')[0].strip()
+                if cond_str.startswith('(') and cond_str.endswith(')'):
+                    cond_str = cond_str[1:-1]
+                condition = self.evaluate_expression(cond_str)
+                
+                block, next_i = self._extract_block(lines, i)
+                
                 if condition:
-                    self.execute_block(block_lines)
+                    self.execute_block(block)
                     self.skip_else = True
                 else:
                     self.skip_else = False
+                
                 i = next_i
                 continue
             
-            if line.startswith('else if '):
+            if line.startswith('} else if '):
                 if not self.skip_else:
-                    condition_expr = line[7:].split('{')[0].strip()
-                    if condition_expr.startswith('(') and condition_expr.endswith(')'):
-                        condition_expr = condition_expr[1:-1]
-                    condition = self.evaluate_expression(condition_expr)
-                    block_lines, next_i = self._extract_block(lines, i)
+                    cond_str = line[10:].split('{')[0].strip()
+                    if cond_str.startswith('(') and cond_str.endswith(')'):
+                        cond_str = cond_str[1:-1]
+                    condition = self.evaluate_expression(cond_str)
+                    
+                    block, next_i = self._extract_block(lines, i)
                     if condition:
-                        self.execute_block(block_lines)
+                        self.execute_block(block)
                         self.skip_else = True
-                    else:
-                        self.skip_else = False
                     i = next_i
                 else:
                     _, next_i = self._extract_block(lines, i)
                     i = next_i
                 continue
             
-            if line.startswith('else'):
-                block_lines, next_i = self._extract_block(lines, i)
+            if line.startswith('} else {'):
                 if not self.skip_else:
-                    self.execute_block(block_lines)
-                i = next_i
-                continue
-            
-            if line.startswith('while '):
-                condition_expr = line[6:].split('{')[0].strip()
-                if condition_expr.startswith('(') and condition_expr.endswith(')'):
-                    condition_expr = condition_expr[1:-1]
-                block_lines, next_i = self._extract_block(lines, i)
-                while self.evaluate_expression(condition_expr):
-                    self.execute_block(block_lines)
-                    if self.break_flag:
-                        self.break_flag = False
-                        break
-                    if self.continue_flag:
-                        self.continue_flag = False
-                        continue
-                    if self.return_value is not None:
-                        return None
-                i = next_i
+                    block, next_i = self._extract_block(lines, i)
+                    self.execute_block(block)
+                    i = next_i
+                else:
+                    _, next_i = self._extract_block(lines, i)
+                    i = next_i
                 continue
             
             if line.startswith('for '):
                 match = re.match(r'for\s+(\w+)\s+in\s+(.+?)\s*\{', line)
                 if match:
-                    var_name = match.group(1)
-                    iterable_expr = match.group(2).strip()
-                    block_lines, next_i = self._extract_block(lines, i)
-                    iterable = self.evaluate_expression(iterable_expr)
-                    if iterable:
-                        for item in iterable:
-                            if var_name in self.locals:
-                                self.locals[var_name] = item
-                            else:
-                                self.variables[var_name] = item
-                            self.execute_block(block_lines)
-                            if self.break_flag:
-                                self.break_flag = False
-                                break
-                            if self.continue_flag:
-                                self.continue_flag = False
-                                continue
+                    var = match.group(1)
+                    iterable = self.evaluate_expression(match.group(2))
+                    block, next_i = self._extract_block(lines, i)
+                    for item in iterable:
+                        self.variables[var] = item
+                        self.execute_block(block)
                     i = next_i
                     continue
-            
-            if line.startswith('switch '):
-                match = re.match(r'switch\s*\((.+?)\)\s*\{', line)
-                if match:
-                    switch_value = self.evaluate_expression(match.group(1).strip())
-                    block_lines, next_i = self._extract_block(lines, i)
-                    matched = False
-                    case_i = 0
-                    while case_i < len(block_lines):
-                        case_line = block_lines[case_i].strip()
-                        if case_line.startswith('case '):
-                            case_val = self.evaluate_expression(case_line[5:].rstrip(':').strip())
-                            if not matched and switch_value == case_val:
-                                matched = True
-                            case_i += 1
-                            continue
-                        if case_line.startswith('default:'):
-                            matched = True
-                            case_i += 1
-                            continue
-                        if matched:
-                            if case_line == 'break;':
-                                break
-                            self.execute_line(case_line)
-                        case_i += 1
-                    i = next_i
-                    continue
-            
-            if line.startswith('try '):
-                block_lines, next_i = self._extract_block(lines, i)
-                self.exception_caught = False
-                self.exception_value = None
-                self.execute_block(block_lines)
-                has_exception = self.exception_value is not None and not self.exception_caught
-                if next_i < len(lines) and lines[next_i].strip().startswith('catch '):
-                    catch_line = lines[next_i].strip()
-                    match = re.match(r'catch\s*\((.+?)\s+(\w+)\)', catch_line)
-                    if match:
-                        exception_var = match.group(2)
-                        catch_block, after_catch = self._extract_block(lines, next_i)
-                        if has_exception:
-                            self.variables[exception_var] = self.exception_value
-                            self.exception_caught = True
-                            self.execute_block(catch_block)
-                        next_i = after_catch
-                    else:
-                        next_i += 1
-                i = next_i
-                continue
             
             if line.startswith('class '):
                 match = re.match(r'class\s+(\w+)\s*\{?', line)
@@ -980,41 +875,35 @@ class FlashLangInterpreter:
                     continue
             
             if line.startswith('func '):
-                match = re.match(r'func\s+(\w+)\s*\(([^)]*)\)', line)
+                match = re.match(r'func\s+(\w+)\s*\(([^)]*)\)\s*\{?', line)
                 if match:
-                    func_name = match.group(1)
-                    params_str = match.group(2)
-                    params = [p.strip() for p in params_str.split(',') if p.strip()] if params_str else []
-                    body_lines, next_i = self._extract_block(lines, i)
-                    self.functions[func_name] = {'params': params, 'body': body_lines}
-                    print(f"[FlashLang] Function '{func_name}' defined")
+                    name = match.group(1)
+                    params = [p.strip() for p in match.group(2).split(',') if p.strip()]
+                    body, next_i = self._extract_block(lines, i)
+                    self.functions[name] = {'params': params, 'body': body}
+                    print(f"[FlashLang] Function '{name}' defined")
                     i = next_i
                     continue
             
-            if line.startswith('python {'):
-                py_lines = []
-                i += 1
-                brace_count = 1
-                while i < len(lines) and brace_count > 0:
-                    py_line = lines[i]
-                    brace_count += py_line.count('{')
-                    brace_count -= py_line.count('}')
-                    if brace_count > 0:
-                        py_lines.append(py_line)
-                    else:
-                        if '}' in py_line:
-                            py_line = py_line.split('}', 1)[0]
-                        if py_line.strip():
-                            py_lines.append(py_line)
-                        break
-                    i += 1
+            if line.startswith('python '):
+                if '{' in line:
+                    py_lines, next_i = self._extract_python_block(lines, i)
+                else:
+                    py_lines = []
+                    next_i = i + 1
+                    while next_i < len(lines) and lines[next_i].strip():
+                        py_lines.append(lines[next_i])
+                        next_i += 1
+                
                 dedented = self._dedent_lines(py_lines)
                 py_code = '\n'.join(dedented)
+                
                 try:
-                    exec_globals = {}
+                    exec_globals = {**self.modules, **self.variables}
                     exec(py_code, exec_globals)
+                    
                     for name, obj in exec_globals.items():
-                        if not name.startswith('_'):
+                        if not name.startswith('_') and name not in self.modules:
                             if isinstance(obj, type):
                                 self.python_classes[name] = obj
                                 print(f"[FlashLang] Registered Python class: {name}")
@@ -1023,71 +912,34 @@ class FlashLangInterpreter:
                                 print(f"[FlashLang] Registered Python function: {name}")
                 except Exception as e:
                     print(f"Python block error: {e}")
+                
+                i = next_i
+                continue
+            
+            if line == '}':
                 i += 1
                 continue
             
             self.execute_line(line)
-            if self.return_value is not None or self.break_flag or self.continue_flag:
-                return None
-            if self.exception_value is not None and not self.exception_caught:
-                return None
+            if self.return_value is not None:
+                return self.return_value
             i += 1
+        
         return None
     
-    def _extract_block(self, lines: List[str], start_idx: int) -> Tuple[List[str], int]:
-        block_lines = []
-        i = start_idx
-        brace_count = 0
-        first_line = True
-        while i < len(lines):
-            line = lines[i]
-            if first_line:
-                first_line = False
-                if '{' in line:
-                    after_brace = line.split('{', 1)[1]
-                    brace_count += 1
-                    brace_count -= after_brace.count('}')
-                    if after_brace.strip():
-                        if '}' in after_brace:
-                            code_part = after_brace.split('}', 1)[0].strip()
-                            if code_part:
-                                block_lines.append(code_part)
-                        else:
-                            block_lines.append(after_brace.strip())
-                    if brace_count == 0:
-                        i += 1
-                        break
-                else:
-                    i += 1
-                    continue
-            else:
-                brace_count += line.count('{')
-                brace_count -= line.count('}')
-                if brace_count > 0:
-                    block_lines.append(line)
-                else:
-                    if '}' in line:
-                        before_close = line.split('}', 1)[0].strip()
-                        if before_close:
-                            block_lines.append(before_close)
-                    break
-            i += 1
-        return block_lines, i + 1
-    
     def execute(self, code: str) -> Any:
+        self.skip_else = False
         lines = code.split('\n')
-        self.output_buffer = []
         return self.execute_block(lines)
 
 
-def ensure_lib_folder():
-    lib_path = Path.cwd() / "lib"
-    if not lib_path.exists():
-        lib_path.mkdir(exist_ok=True)
-
-
 def run_example(debug=False):
-    example_code = '''
+    code = '''
+python {
+def greet_py(name):
+    return f"Hello from Python, {name}!"
+}
+
 class Person {
     var name = "";
     var age = 0;
@@ -1097,52 +949,39 @@ class Person {
         this.age = age;
     }
     
-    func greet() {
-        print("Hello, I'm " + this.name + ", " + this.age + " years old");
-    }
-    
-    func birthday() {
-        this.age = this.age + 1;
+    func introduce() {
+        print("I'm " + this.name + ", " + this.age + " years old");
     }
 }
 
 var person = new Person("Alice", 25);
-person.greet();
-person.birthday();
-person.greet();
+person.introduce();
 
-var arr = [1, 2, 3, 4, 5];
+var arr = [10, 20, 30];
+arr[1] = 99;
 print("Array: " + arr);
-print("Length: " + len(arr));
 
-var x = 2;
-switch (x) {
-    case 1: print("One"); break;
-    case 2: print("Two"); break;
-    default: print("Other");
+var score = 85;
+if (score >= 90) {
+    print("Grade A");
+} else if (score >= 80) {
+    print("Grade B");
+} else {
+    print("Grade C");
 }
 
-try {
-    print("Trying...");
-    throw "Something went wrong";
-} catch (e) {
-    print("Caught: " + e);
-}
-
-print("Program finished!");
+var py_msg = greet_py("FlashLang");
+print(py_msg);
 '''
     
-    print("=== FLASHLANG 0.2 ===\n")
+    print("=== FLASHLANG v1.0 ===\n")
     interpreter = FlashLangInterpreter(debug=debug)
-    interpreter.execute(example_code)
-    print(f"\n=== Program finished ===")
+    interpreter.execute(code)
 
 
 if __name__ == "__main__":
     debug = "--debug" in sys.argv
     args = [arg for arg in sys.argv[1:] if arg != "--debug"]
-    
-    ensure_lib_folder()
     
     if len(args) > 0:
         with open(args[0], 'r', encoding='utf-8') as f:
@@ -1150,6 +989,5 @@ if __name__ == "__main__":
         print(f"=== Running {args[0]} ===\n")
         interpreter = FlashLangInterpreter(debug=debug)
         interpreter.execute(code)
-        print(f"\n=== Program finished ===")
     else:
-        print("No input file...")
+        run_example(debug)

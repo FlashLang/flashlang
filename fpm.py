@@ -19,7 +19,6 @@ from datetime import datetime
 import urllib.request
 import urllib.error
 
-
 class FlashLangPackageManager:
     def __init__(self):
         self.flash_home = Path(__file__).parent
@@ -111,7 +110,7 @@ var VERSION = "0.1.0";
             "keywords": [],
             "repository": "",
             "homepage": "",
-            "flash": ">=0.3.0",
+            "flash": ">=0.2.0",
             "downloads": {}
         }
         
@@ -127,7 +126,7 @@ var VERSION = "0.1.0";
 
 fpm install {name}
 
-### VERSION: str
+### VERSION: 0.1.0
 Current version of the package.
 
 ## License
@@ -531,12 +530,12 @@ def main():
     fpm = FlashLangPackageManager()
     
     if len(sys.argv) < 2:
-        print("FlashLangLang Package Manager (fpm) v0.4.0")
+        print("FlashLang Package Manager (fpm) v0.4.0")
         print("")
         print("Usage: fpm <command> [options]")
         print("")
         print("Commands:")
-        print("  init <name>           Create a new FlashLangLang package")
+        print("  init <name>           Create a new FlashLang package")
         print("  build                 Build package for publishing")
         print("  run                   Run the current package")
         print("  test                  Run tests")
