@@ -1,9 +1,9 @@
-FlashLang Language Grammar v1.0
-============================
+FlashLang Language Grammar v2.0
+===============================
 
 PROGRAM STRUCTURE
 -----------------
-program = ( import_declaration | statement )* ;
+program = ( import_declaration | package_declaration | statement )* ;
 
 
 IMPORTS
@@ -13,6 +13,9 @@ import_declaration =
     | "import" , identifier , "." , identifier , ";"
     ;
 
+package_declaration =
+    "package" , identifier , ";" ;
+
 
 STATEMENTS
 ----------
@@ -20,13 +23,18 @@ statement =
     | variable_declaration
     | assignment
     | function_call
+    | method_call
     | print_statement
     | return_statement
     | break_statement
     | continue_statement
+    | throw_statement
     | if_statement
     | while_statement
     | for_statement
+    | switch_statement
+    | try_statement
+    | class_declaration
     | function_declaration
     | python_block
     | py_call
@@ -40,7 +48,10 @@ variable_declaration =
     "var" , identifier , "=" , expression , ";" ;
 
 assignment = 
-    identifier , "=" , expression , ";" ;
+    ( identifier | field_access ) , "=" , expression , ";" ;
+
+field_access =
+    identifier , "." , identifier ;
 
 
 OUTPUT
@@ -60,6 +71,9 @@ break_statement =
 continue_statement = 
     "continue" , ";" ;
 
+throw_statement =
+    "throw" , expression , ";" ;
+
 
 CONDITIONALS
 ------------
@@ -69,6 +83,27 @@ if_statement =
     [ "else" , block ] ;
 
 
+SWITCH
+------
+switch_statement =
+    "switch" , "(" , expression , ")" , "{" ,
+        ( case_clause | default_clause )* ,
+    "}" ;
+
+case_clause =
+    "case" , expression , ":" , statement* , [ "break" , ";" ] ;
+
+default_clause =
+    "default" , ":" , statement* ;
+
+
+TRY-CATCH
+---------
+try_statement =
+    "try" , block ,
+    "catch" , "(" , identifier , ")" , block ;
+
+
 LOOPS
 -----
 while_statement = 
@@ -76,6 +111,23 @@ while_statement =
 
 for_statement = 
     "for" , identifier , "in" , expression , block ;
+
+
+CLASSES
+-------
+class_declaration =
+    "class" , identifier , "{" ,
+        ( field_declaration | constructor_declaration | method_declaration )* ,
+    "}" ;
+
+field_declaration =
+    "var" , identifier , "=" , expression , ";" ;
+
+constructor_declaration =
+    "constructor" , "(" , [ parameters ] , ")" , block ;
+
+method_declaration =
+    "func" , identifier , "(" , [ parameters ] , ")" , block ;
 
 
 FUNCTIONS
@@ -115,39 +167,24 @@ python_code =
 py_call = 
     "py:" , python_expression ;
 
-python_expression = 
-    | python_literal
-    | python_identifier
-    | python_attribute_access
-    | python_function_call
-    | python_list_comprehension
-    | python_binary_operation
-    | python_unary_operation
-    | "(" , python_expression , ")"
-    ;
-
-python_attribute_access = 
-    python_expression , "." , identifier ;
-
-python_function_call = 
-    python_expression , "(" , [ python_arguments ] , ")" ;
-
-python_list_comprehension = 
-    "[" , expression , "for" , identifier , "in" , python_expression , "]" ;
-
 
 EXPRESSIONS
 -----------
 expression = 
     | literal
     | identifier
+    | field_access
     | function_call
     | method_call
+    | object_creation
     | py_call
     | binary_operation
     | unary_operation
     | "(" , expression , ")"
     ;
+
+object_creation =
+    "new" , identifier , "(" , [ arguments ] , ")" ;
 
 binary_operation = 
     expression , operator , expression ;
@@ -204,6 +241,9 @@ COMMENTS
 single_line_comment = 
     "/" , ( character - newline )* , newline ;
 
+multi_line_comment =
+    "/*" , ( character - "*/" )* , "*/" ;
+
 
 IDENTIFIERS
 -----------
@@ -221,8 +261,11 @@ KEYWORDS
 --------
 keywords = 
     "var" | "print" | "if" | "else" | "while" | "for" | "in" |
-    "func" | "return" | "break" | "continue" |
-    "import" | "python" | "py" |
+    "func" | "return" | "break" | "continue" | "throw" |
+    "import" | "package" | "python" | "py" |
+    "class" | "constructor" | "new" | "this" |
+    "switch" | "case" | "default" |
+    "try" | "catch" |
     "true" | "false" | "null" |
     "and" | "or" | "not" ;
 
@@ -244,35 +287,51 @@ builtin_functions =
 
 EXAMPLES
 --------
-// Variable declaration
+/ Variable declaration
 var name = "World";
 var count = 42;
 var pi = 3.14;
 
-// Print
+/ Print
 print("Hello, " + name);
 print(count);
 
-// Conditional
+/ Conditional
 if (count > 10) {
     print("Large number");
 }
 
-// Loop
+/ Loop
 for i in range(5) {
     print("Iteration: " + i);
 }
 
-// Function
+/ Function
 func add(a, b) {
     return a + b;
 }
 
-// Python call
+/ Class
+class Person {
+    var name = "";
+    
+    constructor(name) {
+        this.name = name;
+    }
+    
+    func greet() {
+        print("Hello, " + this.name);
+    }
+}
+
+var person = new Person("Alice");
+person.greet();
+
+/ Python call
 var result = py: math.sqrt(16);
 var doubled = py: [x*2 for x in [1,2,3]];
 
-// Python block
+/ Python block
 python {
     def greet(name):
         return f"Hello, {name}!"
@@ -280,8 +339,26 @@ python {
 
 var msg = greet("World");
 
-// Import
+/ Import
 import math;
 import random;
+import mymodule;
 
-var random_num = random.randint(1, 100);
+/ Switch
+switch (x) {
+    case 1:
+        print("One");
+        break;
+    case 2:
+        print("Two");
+        break;
+    default:
+        print("Other");
+}
+
+/ Try-catch
+try {
+    throw "Error!";
+} catch (e) {
+    print("Caught: " + e);
+}
