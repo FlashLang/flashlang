@@ -1,16 +1,9 @@
 #!/usr/bin/env python3
 """
-FlashLang Language Interpreter - Версия 1.3.3
+FlashLang Language Interpreter - Версия 1.4.2
+- ИСПРАВЛЕН ЦИКЛ for (переменная видна в выражениях)
+- ДЕКОРАТОРЫ (работающие)
 - ИСПРАВЛЕНА АРИФМЕТИКА через eval()
-- ИСПРАВЛЕН КОНТЕКСТ Python функций
-- ПОЛНОСТЬЮ РАБОТАЮЩИЕ КЛАССЫ
-- new, this, методы
-- Python блоки с регистрацией функций
-- if/else if/else
-- Массивы, JSON
-- Импорт модулей
-- Строковая конкатенация
-- Логирование через logging
 """
 
 import os
@@ -19,10 +12,10 @@ import re
 import json
 import logging
 import traceback
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -55,7 +48,8 @@ class FlashLangInterpreter:
             logger.setLevel(logging.INFO)
 
         self._setup_builtins()
-        logger.info("FlashLang Interpreter initialized")
+        self._setup_builtin_decorators()
+        logger.debug("FlashLang Interpreter initialized")
 
     def _setup_builtins(self):
         try:
@@ -73,6 +67,35 @@ class FlashLangInterpreter:
         self.modules['json'] = json
         logger.debug("Loaded json module")
 
+    def _setup_builtin_decorators(self):
+        def log_decorator(func):
+            def wrapper(*args, **kwargs):
+                logger.info(f"Calling {func.__name__} with args={args}")
+                result = func(*args, **kwargs)
+                logger.info(f"{func.__name__} returned {result}")
+                return result
+            return wrapper
+        
+        def timer_decorator(func):
+            def wrapper(*args, **kwargs):
+                start = time.time()
+                result = func(*args, **kwargs)
+                end = time.time()
+                logger.info(f"{func.__name__} took {end - start:.4f}s")
+                return result
+            return wrapper
+        
+        def deprecated_decorator(func):
+            def wrapper(*args, **kwargs):
+                logger.warning(f"Function {func.__name__} is deprecated")
+                return func(*args, **kwargs)
+            return wrapper
+        
+        self.python_functions['log'] = log_decorator
+        self.python_functions['timer'] = timer_decorator
+        self.python_functions['deprecated'] = deprecated_decorator
+        logger.debug("Built-in decorators registered")
+
     def _debug_print(self, msg):
         if self.debug:
             logger.debug(msg)
@@ -81,7 +104,6 @@ class FlashLangInterpreter:
         return line.strip().startswith('//')
 
     def _strip_comments(self, line: str) -> str:
-        """Remove comments from line, preserving operators inside strings"""
         in_string = False
         quote_char = None
         i = 0
@@ -153,13 +175,11 @@ class FlashLangInterpreter:
         )
 
     def _is_arithmetic_expression(self, expr: str) -> bool:
-        """Check if expression contains arithmetic operations outside string literals"""
         if '+' in expr or '-' in expr or '*' in expr or '/' in expr:
             return True
         return False
 
     def _replace_variables_in_expr(self, expr: str, context: Dict) -> str:
-        """Replace FlashLang variables with Python values"""
         words = re.findall(r'[a-zA-Z_][a-zA-Z0-9_]*', expr)
 
         result = expr
@@ -200,7 +220,6 @@ class FlashLangInterpreter:
 
         # Handle arithmetic expressions
         if self._is_arithmetic_expression(expr):
-            # String concatenation only if + and at least one string operand
             if '+' in expr:
                 parts = expr.split('+')
                 is_string_concat = False
@@ -261,7 +280,6 @@ class FlashLangInterpreter:
         if stripped.replace('.', '').isdigit():
             return float(expr) if '.' in expr else int(expr)
 
-        # Boolean literals
         if expr.lower() == 'true':
             return True
         if expr.lower() == 'false':
@@ -269,7 +287,6 @@ class FlashLangInterpreter:
         if expr.lower() == 'null':
             return None
 
-        # Comparison operators
         if '>=' in expr:
             parts = expr.split('>=')
             return self.evaluate_expression(parts[0], context) >= self.evaluate_expression(parts[1], context)
@@ -286,11 +303,9 @@ class FlashLangInterpreter:
             parts = expr.split('<')
             return self.evaluate_expression(parts[0], context) < self.evaluate_expression(parts[1], context)
 
-        # String literal
         if self._is_string_literal(expr):
             return expr[1:-1]
 
-        # Property access
         if '.' in expr:
             parts = expr.split('.')
             if parts[0] == 'this':
@@ -309,7 +324,6 @@ class FlashLangInterpreter:
                     return obj.get(parts[1])
             return None
 
-        # Variable
         result = self._get_variable(expr, context)
         if result is not None:
             return result
@@ -317,7 +331,6 @@ class FlashLangInterpreter:
         return expr
 
     def _evaluate_concatenation(self, expr: str, context: Dict) -> Any:
-        """Handle string concatenation with + operator"""
         parts = expr.split('+')
         result_parts = []
         for part in parts:
@@ -326,31 +339,29 @@ class FlashLangInterpreter:
         return ''.join(result_parts)
 
     def _evaluate_arithmetic(self, expr: str, context: Dict) -> Any:
-        """Evaluate arithmetic expressions by delegating to Python"""
         expr = expr.strip()
 
-        # Remove outer parentheses
         while expr.startswith('(') and expr.endswith(')'):
             expr = expr[1:-1].strip()
 
-        # Replace variables with their values
         py_expr = self._replace_variables_in_expr(expr, context)
 
         logger.debug(f"Arithmetic eval: {py_expr}")
 
-        # Evaluate using Python
         try:
             safe_globals = {
                 '__builtins__': {
-                    'abs': abs,
-                    'round': round,
-                    'int': int,
-                    'float': float,
-                    'str': str,
-                    'len': len
+                    'abs': abs, 'round': round, 'int': int, 'float': float,
+                    'str': str, 'len': len
                 }
             }
-            result = eval(py_expr, safe_globals, {})
+            # БЕРЁМ ВСЕ ПЕРЕМЕННЫЕ из variables И locals
+            eval_context = {}
+            for key, value in {**self.variables, **self.locals, **context}.items():
+                if not callable(value) and not key.startswith('_'):
+                    eval_context[key] = value
+            
+            result = eval(py_expr, safe_globals, eval_context)
 
             if isinstance(result, float) and result.is_integer():
                 return int(result)
@@ -661,7 +672,7 @@ class FlashLangInterpreter:
             if name in self.classes:
                 return self._create_flash_instance(name, args)
 
-            # Python function - IMPORTANT: check before FlashLang functions
+            # Python function
             if name in self.python_functions:
                 try:
                     result = self.python_functions[name](*args)
@@ -671,27 +682,56 @@ class FlashLangInterpreter:
                     logger.error(f"Error calling Python function {name}: {e}")
                     return None
 
-            # FlashLang function
+            # FlashLang function (with decorator support)
             if name in self.functions:
-                func = self.functions[name]
-                old_locals = self.locals.copy()
-                old_return = self.return_value
-                self.return_value = None
-                self.locals = {}
-                for i, param in enumerate(func['params']):
-                    self.locals[param] = args[i] if i < len(args) else None
-
-                for line in func['body']:
-                    self.execute_line(line)
-                    if self.return_value is not None:
-                        break
-
-                result = self.return_value
-                self.locals = old_locals
-                self.return_value = old_return
-                return result
+                func_info = self.functions[name]
+                
+                # Check if function has decorators
+                if 'decorators' in func_info and func_info['decorators']:
+                    # Apply decorators in reverse order
+                    result_func = self._create_callable_function(name, func_info)
+                    for decorator_name in reversed(func_info['decorators']):
+                        if decorator_name in self.python_functions:
+                            decorator = self.python_functions[decorator_name]
+                            result_func = decorator(result_func)
+                        else:
+                            logger.error(f"Decorator '{decorator_name}' not found")
+                    return result_func(*args)
+                else:
+                    # No decorators, execute directly
+                    return self._execute_flash_function(name, func_info, args)
 
         return None
+
+    def _create_callable_function(self, name: str, func_info: Dict) -> Any:
+        """Create a Python callable wrapper for FlashLang function"""
+        def wrapper(*args):
+            return self._execute_flash_function(name, func_info, list(args))
+        wrapper.__name__ = name
+        return wrapper
+
+    def _execute_flash_function(self, name: str, func_info: Dict, args: List[Any]) -> Any:
+        """Execute a FlashLang function in a fresh interpreter"""
+        
+        # Создаём новый интерпретатор
+        temp_interp = FlashLangInterpreter(debug=self.debug)
+        
+        # Копируем всё необходимое
+        temp_interp.functions = self.functions.copy()
+        temp_interp.classes = self.classes.copy()
+        temp_interp.python_functions = self.python_functions.copy()
+        temp_interp.python_classes = self.python_classes.copy()
+        temp_interp.modules = self.modules.copy()
+        
+        # Устанавливаем аргументы
+        params = func_info.get('params', [])
+        for i, param in enumerate(params):
+            temp_interp.variables[param] = args[i] if i < len(args) else None
+        
+        # Выполняем тело функции как БЛОК, а не построчно
+        result = temp_interp.execute_block(func_info['body'])
+        
+        return result
 
     def _parse_arguments(self, args_str: str, context: Dict) -> List[Any]:
         if not args_str.strip():
@@ -748,10 +788,9 @@ class FlashLangInterpreter:
 
         logger.debug(f"Execute line: {line}")
 
-        # Import statement
         if line.startswith('import '):
             module_name = line[7:].rstrip(';').strip()
-
+            
             if self._import_flash_module(module_name):
                 if module_name in self.flash_modules:
                     mod = self.flash_modules[module_name]
@@ -771,12 +810,10 @@ class FlashLangInterpreter:
                     logger.error(f"Module '{module_name}' not found")
             return None
 
-        # New expression
         if line.startswith('new '):
             line = line.rstrip(';')
             return self.evaluate_expression(line)
 
-        # Var declaration
         if line.startswith('var '):
             content = line[4:].rstrip(';')
             if '=' in content:
@@ -787,12 +824,10 @@ class FlashLangInterpreter:
                 logger.debug(f"Variable set: {var_name} = {value}")
             return None
 
-        # Expression statement
         if '(' in line and line.endswith(';') and not line.startswith('var ') and not line.startswith('print(') and not line.startswith('if ') and not line.startswith('for ') and not line.startswith('while ') and not line.startswith('return '):
             line = line.rstrip(';')
             return self.evaluate_expression(line)
 
-        # Print statement
         if line.startswith('print(') and line.endswith(');'):
             expr = line[6:-2].strip()
             value = self.evaluate_expression(expr)
@@ -800,7 +835,6 @@ class FlashLangInterpreter:
                 print(value)
             return None
 
-        # Array assignment
         if '=' in line and '[' in line and line.endswith(';'):
             line = line.rstrip(';')
             parts = line.split('=', 1)
@@ -816,7 +850,6 @@ class FlashLangInterpreter:
                 logger.debug(f"Array set: {arr_name}[{idx}] = {val}")
             return val
 
-        # Variable assignment
         if '=' in line and line.endswith(';'):
             line = line.rstrip(';')
             parts = line.split('=', 1)
@@ -839,7 +872,6 @@ class FlashLangInterpreter:
             logger.debug(f"Variable set: {name} = {val}")
             return val
 
-        # Return statement
         if line.startswith('return '):
             expr = line[7:].rstrip(';').strip()
             self.return_value = self.evaluate_expression(expr) if expr else None
@@ -904,7 +936,6 @@ class FlashLangInterpreter:
         return block, i
 
     def _extract_python_blocks(self, code: str) -> List[str]:
-        """Extract all python { ... } blocks from code"""
         blocks = []
         i = 0
         while i < len(code):
@@ -946,7 +977,18 @@ class FlashLangInterpreter:
                 i += 1
                 continue
 
-            # If statement
+            # Collect decorators
+            decorators = []
+            while line.startswith('@'):
+                decorator_name = line[1:].strip()
+                decorators.append(decorator_name)
+                i += 1
+                if i >= len(lines):
+                    break
+                line = lines[i].strip()
+                if not line.startswith('@') and not line.startswith('func '):
+                    break
+
             if line.startswith('if '):
                 cond_str = line[3:].split('{')[0].strip()
                 if cond_str.startswith('(') and cond_str.endswith(')'):
@@ -964,7 +1006,6 @@ class FlashLangInterpreter:
                 i = next_i
                 continue
 
-            # Else if statement
             if line.startswith('} else if '):
                 if not self.skip_else:
                     cond_str = line[10:].split('{')[0].strip()
@@ -982,7 +1023,6 @@ class FlashLangInterpreter:
                     i = next_i
                 continue
 
-            # Else statement
             if line.startswith('} else {'):
                 if not self.skip_else:
                     block, next_i = self._extract_block(lines, i)
@@ -993,20 +1033,34 @@ class FlashLangInterpreter:
                     i = next_i
                 continue
 
-            # For loop
             if line.startswith('for '):
                 match = re.match(r'for\s+(\w+)\s+in\s+(.+?)\s*\{', line)
                 if match:
                     var = match.group(1)
-                    iterable = self.evaluate_expression(match.group(2))
+                    iterable_expr = match.group(2).strip()
+                    iterable = self.evaluate_expression(iterable_expr)
                     block, next_i = self._extract_block(lines, i)
+                    
                     for item in iterable:
+                        # Сохраняем старое значение если было
+                        old_value = self.variables.get(var)
                         self.variables[var] = item
+                        # Добавляем в locals для видимости в выражениях
+                        self.locals[var] = item
                         self.execute_block(block)
+                        # Восстанавливаем
+                        if old_value is not None:
+                            self.variables[var] = old_value
+                            self.locals[var] = old_value
+                        else:
+                            if var in self.variables:
+                                del self.variables[var]
+                            if var in self.locals:
+                                del self.locals[var]
+                    
                     i = next_i
                     continue
 
-            # Class definition
             if line.startswith('class '):
                 match = re.match(r'class\s+(\w+)\s*\{?', line)
                 if match:
@@ -1043,13 +1097,24 @@ class FlashLangInterpreter:
                                 ci += len(con_body) + 1
                             continue
                         if class_line.startswith('func '):
+                            method_decorators = []
+                            # Check for decorators on method
+                            temp_ci = ci
+                            while temp_ci > 0 and class_body[temp_ci - 1].strip().startswith('@'):
+                                method_decorators.append(class_body[temp_ci - 1].strip()[1:])
+                                temp_ci -= 1
+                            
                             match_method = re.match(r'func\s+(\w+)\s*\(([^)]*)\)', class_line)
                             if match_method:
                                 method_name = match_method.group(1)
                                 params_str = match_method.group(2)
                                 params = [p.strip() for p in params_str.split(',') if p.strip()] if params_str else []
                                 method_body, skip = self._extract_block(class_body, ci)
-                                methods[method_name] = {'params': params, 'body': method_body}
+                                methods[method_name] = {
+                                    'params': params,
+                                    'body': method_body,
+                                    'decorators': list(reversed(method_decorators))
+                                }
                                 ci += len(method_body) + 1
                             continue
                         ci += 1
@@ -1062,19 +1127,27 @@ class FlashLangInterpreter:
                     i = next_i
                     continue
 
-            # Function definition
             if line.startswith('func '):
                 match = re.match(r'func\s+(\w+)\s*\(([^)]*)\)\s*\{?', line)
                 if match:
                     name = match.group(1)
                     params = [p.strip() for p in match.group(2).split(',') if p.strip()]
                     body, next_i = self._extract_block(lines, i)
-                    self.functions[name] = {'params': params, 'body': body}
-                    logger.info(f"Function '{name}' defined")
+                    
+                    self.functions[name] = {
+                        'params': params,
+                        'body': body,
+                        'decorators': decorators
+                    }
+                    
+                    if decorators:
+                        logger.info(f"Function '{name}' defined with decorators {decorators}")
+                    else:
+                        logger.info(f"Function '{name}' defined")
+                    
                     i = next_i
                     continue
 
-            # Python block - FIXED: proper registration
             if line.startswith('python '):
                 if '{' in line:
                     py_lines, next_i = self._extract_python_block(lines, i)
@@ -1100,12 +1173,6 @@ class FlashLangInterpreter:
                             elif callable(obj):
                                 self.python_functions[name] = obj
                                 logger.info(f"Registered Python function: {name}")
-                                # Test the function
-                                try:
-                                    test_result = obj("test")
-                                    logger.debug(f"Function {name} works, test result: {test_result}")
-                                except Exception as test_e:
-                                    logger.debug(f"Function {name} registered but test failed: {test_e}")
                 except Exception as e:
                     logger.error(f"Python block error: {e}")
                     if self.debug:
@@ -1138,6 +1205,26 @@ def greet_py(name):
     return f"Hello from Python, {name}!"
 }
 
+@log
+func say_hello(name) {
+    return "Hello, " + name;
+}
+
+@log
+@timer
+func slow_function(n) {
+    var result = 0;
+    for i in range(n) {
+        result = result + i;
+    }
+    return result;
+}
+
+@deprecated
+func old_function() {
+    return "This is old";
+}
+
 class Person {
     var name = "";
     var age = 0;
@@ -1147,6 +1234,7 @@ class Person {
         this.age = age;
     }
     
+    @log
     func introduce() {
         print("I'm " + this.name + ", " + this.age + " years old");
     }
@@ -1155,44 +1243,25 @@ class Person {
 var person = new Person("Alice", 25);
 person.introduce();
 
+var message = say_hello("FlashLang");
+print(message);
+
+var sum = slow_function(1000);
+print("Sum: " + sum);
+
+var old_msg = old_function();
+print(old_msg);
+
 var a = 10;
 var b = 3;
-var sum = a + b;
-var diff = a - b;
-var product = a * b;
 var quotient = a / b;
-var complex = (a + b) * 2 - 5;
-
-print("Sum: " + sum);
-print("Difference: " + diff);
-print("Product: " + product);
 print("Quotient: " + quotient);
-print("Complex: " + complex);
-
-var greeting = "Hello" + " " + "World!";
-print(greeting);
-
-var mixed = "Value: " + (10 + 20);
-print(mixed);
-
-var arr = [10, 20, 30];
-arr[1] = 99;
-print("Array: " + arr);
-
-var score = 85;
-if (score >= 90) {
-    print("Grade A");
-} else if (score >= 80) {
-    print("Grade B");
-} else {
-    print("Grade C");
-}
 
 var py_msg = greet_py("FlashLang");
 print(py_msg);
 '''
     print("\n" + "=" * 50)
-    print("RUNNING EXAMPLE")
+    print("RUNNING EXAMPLE WITH DECORATORS")
     print("=" * 50 + "\n")
 
     interpreter = FlashLangInterpreter(debug=debug)

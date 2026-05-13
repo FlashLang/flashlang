@@ -242,6 +242,36 @@ var text = json_stringify(obj);
 
 ---
 
+# Decorators
+
+## Creating
+
+Create decorators from python block
+
+```python
+def timer_decorator(func):
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        result = func(*args, **kwargs)
+        end = time.time()
+        logger.info(f"{func.__name__} took {end - start:.4f}s")
+        return result
+    return wrapper
+```
+
+## Use
+
+```flashlang
+@timer
+func slow_function(n) {
+    var result = 0;
+    for i in range(n) {
+        result = result + i;
+    }
+    return result;
+}
+```
+
 # Built-in functions
 
 ## print
@@ -362,6 +392,7 @@ print(msg);
 
 - Fixed arithmetic via `eval`
 - Fixed Python functions
+- Added decorators
 - Completely working classes
 - `new` support
 - `this` support

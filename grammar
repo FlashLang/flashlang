@@ -1,4 +1,4 @@
-FlashLang Language Grammar v2.0
+FlashLang Language Grammar v2.1
 ===============================
 
 PROGRAM STRUCTURE
@@ -36,10 +36,23 @@ statement =
     | try_statement
     | class_declaration
     | function_declaration
+    | decorator
     | python_block
     | py_call
     | expression_statement
     ;
+
+
+DECORATORS
+----------
+decorator =
+    "@" , identifier , newline? ;
+
+decorated_function =
+    decorator* , function_declaration ;
+
+decorator_application =
+    identifier , "(" , identifier , ")" ;
 
 
 VARIABLES
@@ -48,16 +61,25 @@ variable_declaration =
     "var" , identifier , "=" , expression , ";" ;
 
 assignment = 
-    ( identifier | field_access ) , "=" , expression , ";" ;
+    ( identifier | field_access | array_access ) , "=" , expression , ";" ;
 
 field_access =
-    identifier , "." , identifier ;
+    expression , "." , identifier ;
+
+array_access =
+    expression , "[" , expression , "]" ;
 
 
 OUTPUT
 ------
 print_statement = 
     "print" , "(" , expression , ")" , ";" ;
+
+
+INPUT
+-----
+input_statement =
+    "input" , "(" , [ expression ] , ")" , ";" ;
 
 
 CONTROL FLOW
@@ -112,6 +134,9 @@ while_statement =
 for_statement = 
     "for" , identifier , "in" , expression , block ;
 
+for_range_statement =
+    "for" , identifier , "in" , "range" , "(" , [ integer_literal , [ "," , integer_literal ] ] , ")" , block ;
+
 
 CLASSES
 -------
@@ -127,13 +152,13 @@ constructor_declaration =
     "constructor" , "(" , [ parameters ] , ")" , block ;
 
 method_declaration =
-    "func" , identifier , "(" , [ parameters ] , ")" , block ;
+    decorator* , "func" , identifier , "(" , [ parameters ] , ")" , block ;
 
 
 FUNCTIONS
 ---------
 function_declaration = 
-    "func" , identifier , "(" , [ parameters ] , ")" , block ;
+    decorator* , "func" , identifier , "(" , [ parameters ] , ")" , block ;
 
 parameters = 
     identifier ( "," , identifier )* ;
@@ -167,6 +192,18 @@ python_code =
 py_call = 
     "py:" , python_expression ;
 
+python_expression =
+    ? any valid Python expression ? ;
+
+
+JSON SUPPORT
+------------
+json_parse =
+    "json_parse" , "(" , expression , ")" ;
+
+json_stringify =
+    "json_stringify" , "(" , expression , ")" ;
+
 
 EXPRESSIONS
 -----------
@@ -174,10 +211,13 @@ expression =
     | literal
     | identifier
     | field_access
+    | array_access
     | function_call
     | method_call
     | object_creation
     | py_call
+    | json_parse
+    | json_stringify
     | binary_operation
     | unary_operation
     | "(" , expression , ")"
@@ -192,10 +232,10 @@ binary_operation =
 operator = 
     "+" | "-" | "*" | "/" | "%" | 
     "==" | "!=" | "<" | ">" | "<=" | ">=" |
-    "and" | "or" ;
+    "&&" | "||" | "and" | "or" ;
 
 unary_operation = 
-    ( "-" | "not" ) , expression ;
+    ( "-" | "!" | "not" ) , expression ;
 
 expression_statement = 
     expression , ";" ;
@@ -239,10 +279,7 @@ dict_literal =
 COMMENTS
 --------
 single_line_comment = 
-    "/" , ( character - newline )* , newline ;
-
-multi_line_comment =
-    "/*" , ( character - "*/" )* , "*/" ;
+    "//" , ( character - newline )* , newline ;
 
 
 IDENTIFIERS
@@ -260,58 +297,109 @@ digit =
 KEYWORDS
 --------
 keywords = 
-    "var" | "print" | "if" | "else" | "while" | "for" | "in" |
+    "var" | "print" | "input" | "if" | "else" | "while" | "for" | "in" |
     "func" | "return" | "break" | "continue" | "throw" |
     "import" | "package" | "python" | "py" |
     "class" | "constructor" | "new" | "this" |
     "switch" | "case" | "default" |
     "try" | "catch" |
     "true" | "false" | "null" |
-    "and" | "or" | "not" ;
+    "and" | "or" | "not" |
+    "json_parse" | "json_stringify" ;
 
 
 BUILT-IN FUNCTIONS
 ------------------
 builtin_functions = 
-    | "print" - output to console
-    | "len"   - get length of string/list
-    | "range" - generate sequence of numbers
-    | "str"   - convert to string
-    | "int"   - convert to integer
-    | "float" - convert to float
-    | "list"  - convert to list
-    | "type"  - get type of value
-    | "input" - read from console
+    | "print"   - output to console
+    | "input"   - read from console
+    | "len"     - get length of string/list/dict
+    | "range"   - generate sequence of numbers
+    | "str"     - convert to string
+    | "int"     - convert to integer
+    | "float"   - convert to float
+    | "list"    - convert to list
+    | "dict"    - convert to dict
+    | "type"    - get type of value
+    | "json_parse"    - parse JSON string
+    | "json_stringify" - convert to JSON string
     ;
+
+
+BUILT-IN DECORATORS
+-------------------
+builtin_decorators =
+    | "@log"        - log function calls
+    | "@timer"      - measure execution time
+    | "@deprecated" - mark as deprecated
+    | "@memoize"    - cache results
+    ;
+
+
+PRECEDENCE TABLE
+----------------
+Precedence | Operators              | Associativity
+-----------|------------------------|---------------
+1          | () . [] new            | left
+2          | - (unary) ! not        | right
+3          | * / %                  | left
+4          | + -                    | left
+5          | < > <= >=              | left
+6          | == !=                  | left
+7          | && and                 | left
+8          | || or                  | left
+9          | =                      | right
 
 
 EXAMPLES
 --------
-/ Variable declaration
+// Variable declaration
 var name = "World";
 var count = 42;
 var pi = 3.14;
 
-/ Print
+// Print
 print("Hello, " + name);
 print(count);
 
-/ Conditional
+// Input
+var user = input("Enter name: ");
+
+// Conditional
 if (count > 10) {
     print("Large number");
+} else if (count > 5) {
+    print("Medium number");
+} else {
+    print("Small number");
 }
 
-/ Loop
+// While loop
+var i = 0;
+while (i < 5) {
+    print(i);
+    i = i + 1;
+}
+
+// For loop
 for i in range(5) {
     print("Iteration: " + i);
 }
 
-/ Function
+// For loop over array
+var items = [1, 2, 3, 4, 5];
+for item in items {
+    print(item);
+}
+
+// Function with decorators
+@log
+@timer
 func add(a, b) {
     return a + b;
 }
 
-/ Class
+// Class with decorators
 class Person {
     var name = "";
     
@@ -319,6 +407,7 @@ class Person {
         this.name = name;
     }
     
+    @log
     func greet() {
         print("Hello, " + this.name);
     }
@@ -327,24 +416,40 @@ class Person {
 var person = new Person("Alice");
 person.greet();
 
-/ Python call
+// Python call
 var result = py: math.sqrt(16);
 var doubled = py: [x*2 for x in [1,2,3]];
 
-/ Python block
+// Python block
 python {
     def greet(name):
         return f"Hello, {name}!"
+    
+    import os
+    import sys
 }
 
 var msg = greet("World");
 
-/ Import
+// JSON
+var data = {
+    "name": "FlashLang",
+    "version": 2.1
+};
+var json_str = json_stringify(data);
+var parsed = json_parse(json_str);
+
+// Import
 import math;
 import random;
 import mymodule;
 
-/ Switch
+// Array operations
+var arr = [10, 20, 30];
+arr[1] = 99;
+print(arr[0]);
+
+// Switch
 switch (x) {
     case 1:
         print("One");
@@ -356,7 +461,7 @@ switch (x) {
         print("Other");
 }
 
-/ Try-catch
+// Try-catch
 try {
     throw "Error!";
 } catch (e) {
