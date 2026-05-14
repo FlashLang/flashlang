@@ -249,7 +249,7 @@ var text = json_stringify(obj);
 Create decorators from python block
 
 ```python
-def timer_decorator(func):
+def timer(func):
     def wrapper(*args, **kwargs):
         start = time.time()
         result = func(*args, **kwargs)
